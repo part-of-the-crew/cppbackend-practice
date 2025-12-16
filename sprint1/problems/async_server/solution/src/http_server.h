@@ -99,7 +99,7 @@ private:
     HttpRequest request_;
     virtual std::shared_ptr<SessionBase> GetSharedThis() = 0;
 };
-
+/*
 template <typename RequestHandler>
 class Session : public SessionBase, public std::enable_shared_from_this<Session<RequestHandler>> {
 public:
@@ -111,6 +111,43 @@ private:
     void AsyncRunSession(tcp::socket&& socket) {
         std::make_shared<Session<RequestHandler>>(std::move(socket), request_handler_)->Run();
     }
+    RequestHandler request_handler_;
+};
+
+*/
+template <typename RequestHandler>
+class Session : public SessionBase, public std::enable_shared_from_this<Session<RequestHandler>> {
+public:
+    template <typename Handler>
+    Session(tcp::socket&& socket, Handler&& request_handler)
+        : SessionBase(std::move(socket)), request_handler_(std::forward<Handler>(request_handler)) {}
+
+private:
+    // FIX 1: Implement the pure virtual method to safely retrieve a shared_ptr to SessionBase.
+    std::shared_ptr<SessionBase> GetSharedThis() override {
+        // We use static_pointer_cast to explicitly cast the derived shared_ptr to the base type.
+        return std::static_pointer_cast<SessionBase>(this->shared_from_this());
+    }
+
+    // FIX 2: Implement the pure virtual method to handle the request.
+    void HandleRequest(HttpRequest&& request) override {
+        // The user's request_handler expects a sender function.
+        // We provide a lambda as the sender, which calls SessionBase::Write().
+        // We capture 'self' (a shared_ptr to this session) to ensure the Session object
+        // remains alive until the asynchronous Write operation is complete.
+        request_handler_(std::move(request), [self = this->shared_from_this()](auto&& response) {
+            self->Write(std::forward<decltype(response)>(response));
+        });
+    }
+
+    // The AsyncRunSession method is redundant here, as the Listener should manage session creation.
+    // It's okay to remove it entirely, but keeping it commented out is harmless.
+    /*
+    void AsyncRunSession(tcp::socket&& socket) {
+        std::make_shared<Session<RequestHandler>>(std::move(socket), request_handler_)->Run();
+    }
+    */
+    
     RequestHandler request_handler_;
 };
 
@@ -174,7 +211,7 @@ private:
     }
 
     void AsyncRunSession(tcp::socket&& socket) {
-        // ...
+        std::make_shared<Session<RequestHandler>>(std::move(socket), request_handler_)->Run();
     }
 
     net::io_context& ioc_;
@@ -192,3 +229,4 @@ void ServeHttp(net::io_context& ioc, const tcp::endpoint& endpoint, RequestHandl
 }
 
 }  // namespace http_server
+

@@ -31,31 +31,33 @@ StringResponse MakeStringResponse(http::status status, std::string_view body, un
                                   std::string_view allow, std::string_view content_type = ContentType::TEXT_HTML) {
     StringResponse response(status, http_version);
     response.set(http::field::content_type, content_type);
-    response.set(http::field::allow, content_type);
+    if (!allow.empty()) {
+        response.set(http::field::allow, allow);
+    }
     response.body() = body;
-    response.content_length(body.size());
+    response.prepare_payload();
     response.keep_alive(keep_alive);
     return response;
 }
 
 StringResponse HandleRequest(StringRequest&& req) {
     // Подставьте сюда код из синхронной версии HTTP-сервера
-    http::status status = http::status::method_not_allowed;
-    std::string body;
-    std::string_view allow;
+    http::status status{};
+    std::string body{};
+    std::string allow{};
     auto target = req.target();
 
     switch (req.method()) {
         case http::verb::get:
             status = http::status::ok;
             target.remove_prefix(1);
-            body = "Hello ,"s;
+            body = "Hello, "s;
             body += target;
             break;
 
         case http::verb::head:
             status = http::status::ok;
-            body = "Invalid method"s;
+            body.clear();
             break;
             /*
                     case http::verb::post:
@@ -76,7 +78,9 @@ StringResponse HandleRequest(StringRequest&& req) {
             */
         default:
             // Method not supported
+            status = http::status::method_not_allowed;
             allow = "GET, HEAD"sv;
+            body = "Invalid method"s;
             break;
     }
 
