@@ -1,5 +1,5 @@
 #pragma once
-#define BOOST_BEAST_USE_STD_STRING_VI
+#define BOOST_BEAST_USE_STD_STRING_VIEW
 
 #include <boost/json.hpp>
 #include <optional>
@@ -14,11 +14,6 @@ namespace beast = boost::beast;
 namespace http = beast::http;
 
 using namespace std::literals;
-
-// Запрос, тело которого представлено в виде строки
-using StringRequest = http::request<http::string_body>;
-// Ответ, тело которого представлено в виде строки
-using StringResponse = http::response<http::string_body>;
 
 inline std::vector<std::string_view> SplitTarget(std::string_view target) {
     std::vector<std::string_view> result;
