@@ -7,62 +7,67 @@
 using namespace std::string_literals;
 
 namespace json_loader {
+namespace json = boost::json;
+
+auto coord = [](const boost::json::value& v) { return model::Coord(v.as_int64()); };
+
+std::string ReadFile(const std::filesystem::path& path) {
+    std::ifstream in(path, std::ios::binary);
+    if (!in) {
+        throw std::runtime_error("Failed to open file: " + path.string());
+    }
+    return {std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>()};
+}
+
+model::Road ParseRoad(const json::object& obj) {
+    model::Point start{coord(obj.at("x0"s).as_int64()), coord(obj.at("y0"s).as_int64())};
+    if (obj.contains("x1"s)) {
+        return {model::Road::HORIZONTAL, start, static_cast<int>(obj.at("x1"s).as_int64())};
+    }
+    return {model::Road::VERTICAL, start, static_cast<int>(obj.at("y1"s).as_int64())};
+}
+
+model::Building ParseBuilding(const json::object& obj) {
+    return model::Building{model::Rectangle{.position = {coord(obj.at("x"s)), coord(obj.at("y"s))},
+                                            .size = {coord(obj.at("w"s)), coord(obj.at("h"s))}}};
+}
+
+model::Office ParseOffice(const json::object& obj) {
+    return model::Office{model::Office::Id{std::string(obj.at("id"s).as_string())},
+                         model::Point{coord(obj.at("x"s)), coord(obj.at("y"s))},
+                         model::Offset{coord(obj.at("offsetX"s)), coord(obj.at("offsetY"s))}};
+}
+
+model::Map ParseMap(const json::value& map_json) {
+    const auto& desc = map_json.as_object();
+    model::Map map(model::Map::Id{std::string(desc.at("id"s).as_string())}, std::string(desc.at("name"s).as_string()));
+
+    for (const auto& r : desc.at("roads"s).as_array()) {
+        map.AddRoad(ParseRoad(r.as_object()));
+    }
+    for (const auto& b : desc.at("buildings"s).as_array()) {
+        map.AddBuilding(ParseBuilding(b.as_object()));
+    }
+    for (const auto& o : desc.at("offices"s).as_array()) {
+        map.AddOffice(ParseOffice(o.as_object()));
+    }
+    return map;
+}
 
 model::Game LoadGame(const std::filesystem::path& json_path) {
-    // Загрузить содержимое файла json_path, например, в виде строки
-    std::ifstream in(json_path);
-    if (!in) {
-        throw std::runtime_error("Failed to open file");
-    }
-    // Распарсить строку как JSON, используя boost::json::parse
-    const auto content =
-        boost::json::parse(std::string(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>()));
+    // Загрузить содержимое файла json_path и Распарсить строку как JSON, используя boost::json::parse
+    auto content = json::parse(ReadFile(json_path));
 
     // Загрузить модель игры из файла
     model::Game game;
 
-    auto coord = [](const boost::json::value& v) { return model::Coord(v.as_int64()); };
-    // coord(obj.at("x"s))
     const auto& root = content.as_object();
     if (!root.contains("maps"s)) {
         throw std::runtime_error("JSON has no 'maps'");
     }
 
     for (const auto& map_json : root.at("maps"s).as_array()) {
-        const auto& desc = map_json.as_object();
-
-        model::Map map(model::Map::Id{std::string(desc.at("id"s).as_string())},
-                       std::string(desc.at("name"s).as_string()));
-
-        // Buildings
-        for (const auto& e : desc.at("buildings"s).as_array()) {
-            const auto& obj = e.as_object();
-            model::Point p(coord(obj.at("x"s)), coord(obj.at("y"s)));
-            model::Size s(coord(obj.at("w"s)), coord(obj.at("h"s)));
-            map.AddBuilding(model::Building{model::Rectangle{p, s}});
-        }
-
-        // Offices
-        for (const auto& e : desc.at("offices"s).as_array()) {
-            const auto& obj = e.as_object();
-            map.AddOffice(model::Office{model::Office::Id{std::string(obj.at("id"s).as_string())},
-                                        model::Point{coord(obj.at("x"s)), coord(obj.at("y"s))},
-                                        model::Offset{coord(obj.at("offsetX"s)), coord(obj.at("offsetY"s))}});
-        }
-
-        // Roads
-        for (const auto& e : desc.at("roads"s).as_array()) {
-            const auto& obj = e.as_object();
-            model::Point start(coord(obj.at("x0"s)), coord(obj.at("y0"s)));
-
-            if (const auto it = obj.find("x1"s); it != obj.end()) {
-                map.AddRoad({model::Road::HORIZONTAL, start, coord(it->value())});
-            } else {
-                map.AddRoad({model::Road::VERTICAL, start, coord(obj.at("y1"s))});
-            }
-        }
-
-        game.AddMap(std::move(map));
+        game.AddMap(ParseMap(map_json));
     }
 
     return game;
