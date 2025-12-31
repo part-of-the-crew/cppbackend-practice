@@ -1,0 +1,25 @@
+[requires]
+boost/1.78.0
+
+[generators]
+cmake
+
+[options]
+boost:shared=True
+boost:multithreading=True
+boost:layout=system
+# Explicitly disable components causing the "cannot find" and "backtrace" errors
+boost:without_stacktrace=True
+boost:without_graph=True
+boost:without_graph_parallel=True
+boost:without_mpi=True
+boost:without_wave=True
+boost:without_fiber=True
+boost:without_coroutine=True
+boost:without_contract=True
+# Ensure only the ones you need are enabled
+boost:without_log=False
+boost:without_json=False
+boost:without_thread=False
+boost:without_chrono=False
+boost:without_filesystem=False
