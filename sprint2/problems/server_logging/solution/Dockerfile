@@ -1,49 +1,49 @@
-# --- Сборочный образ ---
-FROM ubuntu:22.04 as build
+# Не просто создаём образ, но даём ему имя build
+FROM gcc:11.3 as build
 
-# Установка зависимостей сборки
 RUN apt update && \
     apt install -y \
       python3-pip \
       cmake \
-      build-essential \
-      curl \
     && \
-    pip3 install conan==1.59.0
+    pip3 install conan==1.*
 
-# Настройка профиля Conan (важно для корректного обнаружения ABI)
+# Configure Conan profile (Critical for ABI compatibility)
 RUN conan profile new default --detect && \
     conan profile update settings.compiler.libcxx=libstdc++11 default
 
+# Запуск conan как раньше
 COPY conanfile.txt /app/
-WORKDIR /app/build
+RUN mkdir /app/build && cd /app/build && \
+    conan install .. --build=missing -s compiler.libcxx=libstdc++11
 
-# Принудительно пересобираем boost внутри контейнера с нужным ABI
-RUN conan install .. --build=boost -s build_type=Release
-
-# Копируем исходники
+# Папка data больше не нужна
 COPY ./src /app/src
 COPY CMakeLists.txt /app/
 
-# Сборка проекта
-RUN cmake -DCMAKE_BUILD_TYPE=Release .. && \
+RUN cd /app/build && \
+    cmake -DCMAKE_BUILD_TYPE=Release .. && \
     cmake --build . -j $(nproc)
 
-# --- Финальный образ ---
+
+# Второй контейнер в том же докерфайле
 FROM ubuntu:22.04 as run
 
+# The static binary needs almost no dependencies, but libstdc++ is safe
 RUN apt update && apt install -y libstdc++6 && rm -rf /var/lib/apt/lists/*
 
-# Создаем пользователя
+# Создадим пользователя www
 RUN groupadd -r www && useradd -r -g www www
 USER www
-WORKDIR /app
 
-# Копируем бинарный файл
+
+
+# Скопируем приложение со сборочного контейнера в директорию /app.
+# Не забываем также папку data, она пригодится.
 COPY --from=build /app/build/bin/game_server /app/
-# Если вы используете динамические библиотеки (shared=True), нужно скопировать и их!
-# Но проще использовать статические библиотеки в Conan (см. ниже)
 
 COPY ./data /app/data
+COPY ./static /app/static
 
+# Запускаем игровой сервер
 ENTRYPOINT ["/app/game_server", "/app/data/config.json"]

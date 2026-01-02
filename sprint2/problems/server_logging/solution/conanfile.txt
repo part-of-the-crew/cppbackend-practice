@@ -5,10 +5,10 @@ boost/1.78.0
 cmake
 
 [options]
-boost:shared=True
+# CHANGE THIS TO FALSE
+boost:shared=False
 boost:multithreading=True
 boost:layout=system
-# Explicitly disable components causing the "cannot find" and "backtrace" errors
 boost:without_stacktrace=True
 boost:without_graph=True
 boost:without_graph_parallel=True

@@ -24,7 +24,7 @@ namespace expr = boost::log::expressions;
 BOOST_LOG_ATTRIBUTE_KEYWORD(json_data, "JsonData", json::value)
 BOOST_LOG_ATTRIBUTE_KEYWORD(timestamp, "TimeStamp", boost::posix_time::ptime)
 
-inline void MyFormatter(logging::record_view const& rec, logging::formatting_ostream& strm) {
+inline void MyFormatter1(logging::record_view const& rec, logging::formatting_ostream& strm) {
     auto ts = rec[timestamp];
     auto data = rec[json_data];
     auto message = rec[logging::expressions::smessage];
@@ -37,19 +37,72 @@ inline void MyFormatter(logging::record_view const& rec, logging::formatting_ost
 
     strm << json::serialize(jv);
 }
+// In my_logger.h
+
+inline void MyFormatter(logging::record_view const& rec, logging::formatting_ostream& strm) {
+    // 1. Safe extraction
+    auto ts = rec[timestamp];
+    auto data = rec[json_data];
+    auto message = rec[logging::expressions::smessage];
+
+    // 2. DO NOT THROW. Handle missing data gracefully.
+    boost::json::object jv;
+    
+    jv["timestamp"] = ts ? to_iso_extended_string(*ts) : "null";
+    jv["message"] = message ? *message : "";
+
+    if (data) {
+        jv["data"] = data->as_object();
+    } else {
+        jv["data"] = nullptr; 
+    }
+
+    strm << json::serialize(jv);
+}
 
 inline void InitBoostLogFilter() {
-    auto sink = boost::make_shared<sinks::synchronous_sink<sinks::text_ostream_backend>>();
+    // 1. Create the backend first
+    auto backend = boost::make_shared<sinks::text_ostream_backend>();
 
-    // Write to std::cout
-    sink->locked_backend()->add_stream(boost::shared_ptr<std::ostream>(&std::cout, boost::null_deleter{}));
+    // 2. Add the stream (std::cout)
+    backend->add_stream(
+        boost::shared_ptr<std::ostream>(&std::cout, boost::null_deleter{})
+    );
 
-    sink->set_formatter(&MyFormatter);
+    // 3. Set auto_flush on the BACKEND
+    // This tells Boost to call flush() on the stream after every log record
+    backend->auto_flush(true);
+
+    // 4. Wrap the backend in the synchronous sink (frontend)
+    auto sink = boost::make_shared<sinks::synchronous_sink<sinks::text_ostream_backend>>(backend);
+    
+    sink->set_formatter(&MyFormatter1);
 
     logging::core::get()->add_sink(sink);
     logging::add_common_attributes();
 }
 
+
+inline void InitBoostLogFilter2sinks() {
+    auto backend = boost::make_shared<sinks::text_ostream_backend>();
+
+    // 1. Add std::cout
+    backend->add_stream(boost::shared_ptr<std::ostream>(&std::cout, boost::null_deleter{}));
+
+    // 2. Add the file stream
+    // Use std::make_shared for the file stream to manage its lifetime
+    auto file_stream = boost::make_shared<std::ofstream>("server.log", std::ios::app);
+    backend->add_stream(file_stream);
+
+    // Auto-flush ensures logs appear immediately (important for Docker crashes!)
+    backend->auto_flush(true);
+
+    auto sink = boost::make_shared<sinks::synchronous_sink<sinks::text_ostream_backend>>(backend);
+    sink->set_formatter(&MyFormatter);
+
+    logging::core::get()->add_sink(sink);
+    logging::add_common_attributes();
+}
 inline void LogServerRequest(std::string ip, std::string URI, std::string_view method) {
     json::value data = {
         {"ip", std::move(ip)},

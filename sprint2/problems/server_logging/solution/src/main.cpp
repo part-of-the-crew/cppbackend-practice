@@ -72,10 +72,15 @@ private:
 };
 
 int main(int argc, const char* argv[]) {
-    if (argc != 3) {
+    if (argc == 1) {
         std::cerr << "Usage: game_server <game-config-json>"sv << std::endl;
         return EXIT_FAILURE;
     }
+    std::filesystem::path path_to_static{"/app/static"};
+    if (argc == 3) {
+        path_to_static = argv[2];
+    }
+
     logger::InitBoostLogFilter();
     try {
         // 1. Загружаем карту из файла и построить модель игры
@@ -93,22 +98,23 @@ int main(int argc, const char* argv[]) {
                 // Choose reason based on signal
                 const char* reason = nullptr;
                 switch (signal_number) {
-                    case SIGINT:
-                        reason = "SIGINT received";
-                        break;
-                    case SIGTERM:
-                        reason = "SIGTERM received";
-                        break;
-                    default:
-                        reason = "Unknown termination signal";
-                        break;
+                case SIGINT:
+                    reason = "SIGINT received";
+                    break;
+                case SIGTERM:
+                    reason = "SIGTERM received";
+                    break;
+                default:
+                    reason = "Unknown termination signal";
+                    break;
                 }
                 logger::LogServerStop(signal_number, reason);
+                boost::log::core::get()->flush();  // Force write to console
                 ioc.stop();
             }
         });
         // 4. Создаём обработчик HTTP-запросов и связываем его с моделью игры
-        http_handler::RequestHandler handler{game, argv[2]};
+        http_handler::RequestHandler handler{game, path_to_static};
         LoggingRequestHandler logging_handler{handler};
         //  5. Запустить обработчик HTTP-запросов, делегируя их обработчику запросов
         const auto address = net::ip::make_address("0.0.0.0");
@@ -117,15 +123,16 @@ int main(int argc, const char* argv[]) {
         http_server::ServeHttp(ioc, {address, port}, [&logging_handler](auto&& req, auto&& send) {
             logging_handler(std::forward<decltype(req)>(req), std::forward<decltype(send)>(send));
         });
-        logger::LogServerLaunch({address, port});
-        // Эта надпись сообщает тестам о том, что сервер запущен и готов обрабатывать запросы
-        std::cout << "Server has started..."sv << std::endl;
 
+        // Эта надпись сообщает тестам о том, что сервер запущен и готов обрабатывать запросы
+        //std::cout << "Server has started..."sv << std::endl;
+        logger::LogServerLaunch({address, port});
         // 6. Запускаем обработку асинхронных операций
         RunWorkers(std::max(1u, num_threads), [&ioc] { ioc.run(); });
     } catch (const std::exception& ex) {
         // std::cerr << ex.what() << std::endl;std::exception::what()
         logger::LogServerStop(EXIT_FAILURE, ex.what());
+        boost::log::core::get()->flush();  // Force write to console
         return EXIT_FAILURE;
     }
 }
