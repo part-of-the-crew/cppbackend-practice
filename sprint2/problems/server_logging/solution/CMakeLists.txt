@@ -27,19 +27,7 @@ add_executable(game_server
     src/request_handler.h
 )
 
-
-#target_link_libraries(game_server PRIVATE 
-#    Threads::Threads
-##    CONAN_PKG::boost
-#    ${CONAN_LIBS_BOOST_JSON}
-#    ${CONAN_LIBS_BOOST_LOG_SETUP}
- #   ${CONAN_LIBS_BOOST_LOG}
-#    ${CONAN_LIBS_BOOST_FILESYSTEM}
-#)
 target_link_libraries(game_server PRIVATE 
     Threads::Threads
     CONAN_PKG::boost
-    # When linking static Boost Log, you often need these system libs
-    dl
-    rt
 )

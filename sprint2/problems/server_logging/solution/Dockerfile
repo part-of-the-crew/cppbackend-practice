@@ -23,14 +23,15 @@ COPY CMakeLists.txt /app/
 
 RUN cd /app/build && \
     cmake -DCMAKE_BUILD_TYPE=Release .. && \
-    cmake --build . -j $(nproc)
+    cmake --build . --parallel
+    #-j $(nproc)
 
 
 # Второй контейнер в том же докерфайле
 FROM ubuntu:22.04 as run
 
 # The static binary needs almost no dependencies, but libstdc++ is safe
-RUN apt update && apt install -y libstdc++6 && rm -rf /var/lib/apt/lists/*
+#RUN apt update && apt install -y libstdc++6 && rm -rf /var/lib/apt/lists/*
 
 # Создадим пользователя www
 RUN groupadd -r www && useradd -r -g www www
