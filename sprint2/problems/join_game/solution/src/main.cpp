@@ -45,7 +45,7 @@ int main(int argc, const char* argv[]) {
     try {
         // 1. Загружаем карту из файла и построить модель игры
         model::Game game = json_loader::LoadGame(argv[1]);
-
+        app::Application application{std::move(game)};
         // 2. Инициализируем io_context
         const unsigned num_threads = std::thread::hardware_concurrency();
         net::io_context ioc(num_threads);
@@ -54,7 +54,7 @@ int main(int argc, const char* argv[]) {
         const auto address = net::ip::make_address("0.0.0.0");
         constexpr net::ip::port_type port = 8080;
 
-        http_handler::RequestHandler handler{path_to_static, api_strand, game};
+        http_handler::RequestHandler handler{path_to_static, api_strand, application};
 
         logger::LoggingRequestHandler logging_handler{handler};
 

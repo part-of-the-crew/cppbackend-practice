@@ -4,6 +4,38 @@
 
 namespace http_handler {
 
+// Helper remains inline because it's simple and used by the template operator()
+std::vector<std::string_view> SplitTarget(std::string_view target) {
+    std::vector<std::string_view> result;
+    while (!target.empty()) {
+        if (target.front() == '/') {
+            target.remove_prefix(1);
+            continue;
+        }
+        auto pos = target.find('/');
+        result.push_back(target.substr(0, pos));
+        if (pos == std::string_view::npos)
+            break;
+        target.remove_prefix(pos + 1);
+    }
+    return result;
+}
+
+// Возвращает true, если каталог p содержится внутри base_path.
+bool IsSubPath(fs::path path, fs::path base) {
+    // Приводим оба пути к каноничному виду (без . и ..)
+    path = fs::weakly_canonical(path);
+    base = fs::weakly_canonical(base);
+
+    // Проверяем, что все компоненты base содержатся внутри path
+    for (auto b = base.begin(), p = path.begin(); b != base.end(); ++b, ++p) {
+        if (p == path.end() || *p != *b) {
+            return false;
+        }
+    }
+    return true;
+}
+
 std::string UrlDecode(std::string_view text) {
     std::string res;
     // Reserve memory to avoid reallocations, assuming decoded string <= source
@@ -78,74 +110,6 @@ std::string_view DefineMIMEType(const std::filesystem::path& path) {
 
     // Default for unknown files
     return "application/octet-stream"sv;
-}
-
-json::value RequestHandler::HandleMaps() {
-    json::array json_maps;
-    for (const auto& map : game_.GetMaps()) {
-        json::object json_map;
-        json_map["id"] = *map.GetId();
-        json_map["name"] = map.GetName();
-        json_maps.emplace_back(std::move(json_map));
-    }
-    return json_maps;
-}
-
-std::pair<json::value, bool> RequestHandler::HandleMapId(std::string_view name_map) {
-    const auto* map = game_.FindMap(model::Map::Id{std::string(name_map)});
-    if (!map) {
-        return {json::value{}, true};
-    }
-    return {SerializeMap(*map), false};
-}
-
-json::object RequestHandler::SerializeMap(const model::Map& map) {
-    json::object map_obj;
-    map_obj["id"] = *map.GetId();
-    map_obj["name"] = map.GetName();
-
-    json::array roads;
-    for (const auto& r : map.GetRoads())
-        roads.push_back(SerializeRoad(r));
-    map_obj["roads"] = std::move(roads);
-
-    json::array buildings;
-    for (const auto& b : map.GetBuildings())
-        buildings.push_back(SerializeBuilding(b));
-    map_obj["buildings"] = std::move(buildings);
-
-    json::array offices;
-    for (const auto& o : map.GetOffices())
-        offices.push_back(SerializeOffice(o));
-    map_obj["offices"] = std::move(offices);
-
-    return map_obj;
-}
-
-json::object RequestHandler::SerializeRoad(const model::Road& road) {
-    json::object obj;
-    const auto& start = road.GetStart();
-    const auto& end = road.GetEnd();
-    obj["x0"] = start.x;
-    obj["y0"] = start.y;
-    if (start.y == end.y)
-        obj["x1"] = end.x;
-    else
-        obj["y1"] = end.y;
-    return obj;
-}
-
-json::object RequestHandler::SerializeBuilding(const model::Building& b) {
-    const auto& bounds = b.GetBounds();
-    return {{"x", bounds.position.x}, {"y", bounds.position.y}, {"w", bounds.size.width}, {"h", bounds.size.height}};
-}
-
-json::object RequestHandler::SerializeOffice(const model::Office& o) {
-    return {{"id", *o.GetId()},
-            {"x", o.GetPosition().x},
-            {"y", o.GetPosition().y},
-            {"offsetX", o.GetOffset().dx},
-            {"offsetY", o.GetOffset().dy}};
 }
 
 }  // namespace http_handler

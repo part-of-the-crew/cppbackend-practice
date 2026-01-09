@@ -44,10 +44,10 @@ protected:
         auto safe_response = std::make_shared<http::response<Body, Fields>>(std::move(response));
 
         auto self = GetSharedThis();
-        http::async_write(stream_, *safe_response,
-                          [safe_response, self](beast::error_code ec, std::size_t bytes_written) {
-                              self->OnWrite(safe_response->need_eof(), ec, bytes_written);
-                          });
+        http::async_write(
+            stream_, *safe_response, [safe_response, self](beast::error_code ec, std::size_t bytes_written) {
+                self->OnWrite(safe_response->need_eof(), ec, bytes_written);
+            });
     }
 
 private:
@@ -58,8 +58,8 @@ private:
         stream_.expires_after(30s);
         // Считываем request_ из stream_, используя buffer_ для хранения считанных данных
         http::async_read(stream_, buffer_, request_,
-                         // По окончании операции будет вызван метод OnRead
-                         beast::bind_front_handler(&SessionBase::OnRead, GetSharedThis()));
+            // По окончании операции будет вызван метод OnRead
+            beast::bind_front_handler(&SessionBase::OnRead, GetSharedThis()));
     }
 
     void OnRead(beast::error_code ec, [[maybe_unused]] std::size_t bytes_read) {
@@ -122,8 +122,8 @@ private:
     // FIX 2: Implement the pure virtual method to handle the request.
     void HandleRequest(HttpRequest&& request) override {
         tcp::endpoint remote = SessionBase::stream_.socket().remote_endpoint();
-        logger::LogServerRequest(remote.address().to_string(), std::string(request.target()),
-                                 std::string(request.method_string()));
+        logger::LogServerRequest(
+            remote.address().to_string(), std::string(request.target()), std::string(request.method_string()));
         // std::chrono::system_clock::time_point start_ts_ = std::chrono::system_clock::now();
         //  The user's request_handler expects a sender function.
         //  We provide a lambda as the sender, which calls SessionBase::Write().
@@ -149,10 +149,9 @@ public:
     template <typename Handler>
     Listener(net::io_context& ioc, const tcp::endpoint& endpoint, Handler&& request_handler)
         : ioc_(ioc)
-          // Обработчики асинхронных операций acceptor_ будут вызываться в своём strand
-          ,
-          acceptor_(net::make_strand(ioc)),
-          request_handler_(std::forward<Handler>(request_handler)) {
+        // Обработчики асинхронных операций acceptor_ будут вызываться в своём strand
+        , acceptor_(net::make_strand(ioc))
+        , request_handler_(std::forward<Handler>(request_handler)) {
         // Открываем acceptor, используя протокол (IPv4 или IPv6), указанный в endpoint
         acceptor_.open(endpoint.protocol());
 

@@ -20,6 +20,8 @@ namespace beast = boost::beast;
 namespace http = beast::http;
 namespace json = boost::json;
 namespace fs = std::filesystem;
+namespace net = boost::asio;
+using tcp = net::ip::tcp;
 using namespace std::literals;
 
 // Helper remains inline because it's simple and used by the template operator()
@@ -135,18 +137,28 @@ ResponseVariant MakeFile(http::status status, http::file_body::value_type&& file
 
 class RequestHandler {
 public:
-    explicit RequestHandler(model::Game& game, std::filesystem::path path_to_static)
-        : game_{game}, path_to_static_{std::move(path_to_static)} {}
+    using Strand = net::strand<net::io_context::executor_type>;
+
+    RequestHandler(fs::path path_to_static, Strand api_strand, model::Game& game)
+        : path_to_static_{std::move(path_to_static)}, game_{game}, api_strand_{api_strand} {}
+
     RequestHandler(const RequestHandler&) = delete;
     RequestHandler& operator=(const RequestHandler&) = delete;
 
-    // This is a template, so it stays in the header
     template <typename Body, typename Allocator, typename Send>
-    void operator()(http::request<Body, http::basic_fields<Allocator>>&& req, Send&& send) {
+    void operator()([[maybe_unused]] tcp::endpoint ep, http::request<Body, http::basic_fields<Allocator>>&& req,
+                    Send&& send) {
         ResponseSender<Send> visitor{send, req.method()};
 
         if (req.target().starts_with("/api/")) {
-            return std::visit(visitor, HandleAPI(req));
+            // We must capture 'req' by value (move it) because this lambda
+            // might execute after the current function returns.
+            auto task = [this, req = std::move(req), send = std::forward<Send>(send)]() mutable {
+                ResponseSender<Send> visitor{send, req.method()};
+                std::visit(visitor, HandleAPI(req));
+            };
+
+            return net::dispatch(api_strand_, std::move(task));
         }
 
         if (req.method() != http::verb::get && req.method() != http::verb::head) {
@@ -158,8 +170,9 @@ public:
     }
 
 private:
-    model::Game& game_;
     fs::path path_to_static_;
+    Strand api_strand_;
+    model::Game& game_;
 
     template <typename Request>
     ResponseVariant HandleStatic(const Request& req) {
@@ -180,9 +193,8 @@ private:
         if (fs::is_directory(full_path)) {
             full_path /= "index.html";
         }
-
         if (!fs::exists(full_path)) {
-            return responses::MakeTextError(http::status::not_found, "File not found", req);
+            return responses::MakeTextError(http::status::not_found, "File not found"s, req);
         }
 
         // Use Boost.Beast to open the file
@@ -190,9 +202,8 @@ private:
         beast::error_code ec;
         file.open(full_path.string().c_str(), beast::file_mode::read, ec);
         if (ec) {
-            return responses::MakeTextError(http::status::not_found, "File not found", req);
+            return responses::MakeTextError(http::status::forbidden, "Couldn't open file"s, req);
         }
-
         return responses::MakeFile(http::status::ok, std::move(file), DefineMIMEType(full_path), req);
     }
 
