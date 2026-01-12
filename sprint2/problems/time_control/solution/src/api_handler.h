@@ -53,8 +53,8 @@ private:
     std::optional<app::AuthRequest> ParseJSONAuthReq(std::string body);
 
     JoinOutcome ProcessJoinGame(const app::AuthRequest& params);
-    std::string ProcessPlayers(const std::string& token);
-    std::optional<std::string> ProcessState(const app::Token& token);
+    json::object ProcessPlayers(const std::string& token);
+    std::optional<json::object> ProcessState(const app::Token& token);
     // std::optional<std::string> ProcessPlayerAction(const app::Token& token);
 
     boost::json::object SerializeMap(const model::Map& map);
