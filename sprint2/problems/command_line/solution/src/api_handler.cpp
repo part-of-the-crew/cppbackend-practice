@@ -1,10 +1,18 @@
 #include "api_handler.h"
 
 #include <charconv>  // For std::from_chars
-// cd server_logging && ./build.sh && ./run.sh && cd .. && cd game_state && ./build.sh && ./run.sh && cd .. && cd
-// server_logging && ./build.sh && ./run.sh && cd .. &&cd join_game && ./build.sh && ./run.sh && cd .. && cd
-// move_players && ./build.sh && ./run.sh && cd .. && cd time_control && ./build.sh && ./run.sh && cd ..
+
 namespace api_handler {
+
+struct APItype {
+    APItype() = delete;
+    constexpr static std::string_view V1_GAME_JOIN = "/api/v1/game/join"sv;
+    constexpr static std::string_view V1_GAME_PLAYERS = "/api/v1/game/players"sv;
+    constexpr static std::string_view V1_GAME_STATE = "/api/v1/game/state"sv;
+    constexpr static std::string_view V1_GAME_PLAYER_ACTION = "/api/v1/game/player/action"sv;
+    constexpr static std::string_view V1_GAME_TICK = "/api/v1/game/tick"sv;
+    constexpr static std::string_view V1_MAPS = "/api/v1/maps"sv;
+};
 
 // Helper remains inline because it's simple and used by the template operator()
 std::vector<std::string_view> SplitTarget(std::string_view target) {
@@ -51,25 +59,25 @@ std::optional<model::Direction> StringToDirection(std::string_view dir_str) {
 response::ResponseVariant HandleAPI::operator()(const http::request<http::string_body>& req) {
     const auto& target = req.target();
 
-    if (target == "/api/v1/game/join") {
+    if (target == APItype::V1_GAME_JOIN) {
         return HandleJoin(req);
     }
-    if (target == "/api/v1/game/players") {
+    if (target == APItype::V1_GAME_PLAYERS) {
         return HandlePlayers(req);
     }
-    if (target == "/api/v1/game/state") {
+    if (target == APItype::V1_GAME_STATE) {
         return HandleState(req);
     }
-    if (target == "/api/v1/game/player/action") {
+    if (target == APItype::V1_GAME_PLAYER_ACTION) {
         return HandlePlayerAction(req);
     }
-    if (target == "/api/v1/game/tick") {
+    if (target == APItype::V1_GAME_TICK) {
         return HandleTick(req);
     }
-    if (target == "/api/v1/maps") {
+    if (target == APItype::V1_MAPS) {
         return HandleMaps(req);
     }
-    if (target.starts_with("/api/v1/maps/")) {
+    if (target.starts_with(APItype::V1_MAPS)) {
         return HandleMapId(req);
     }
     return response::MakeError(http::status::conflict, "badRequest", "Invalid API path", req);
@@ -86,10 +94,10 @@ response::ResponseVariant HandleAPI::HandleJoin(const http::request<http::string
     JoinOutcome outcome = ProcessJoinGame(*AuthReq);
     if (std::holds_alternative<JoinError>(outcome)) {
         auto err = std::get<JoinError>(outcome);
-        if (err == JoinError::MapNotFound)
+        if (err == JoinError::MapNotFound) {
             return response::MakeError(http::status::not_found, "mapNotFound", "Map not found", req);
-        else
-            return response::MakeError(http::status::bad_request, "invalidArgument", "Invalid name", req);
+        }
+        return response::MakeError(http::status::bad_request, "invalidArgument", "Invalid name", req);
     }
     const auto& success = std::get<json::object>(outcome);
     return response::MakeJSON(http::status::ok, std::move(success), req);
@@ -124,7 +132,11 @@ response::ResponseVariant HandleAPI::HandleState(const http::request<http::strin
     if (!result) {
         return response::MakeError(http::status::unauthorized, "unknownToken", "Player token has not been found", req);
     }
-    return response::MakeJSON(http::status::ok, json::parse(*result), req);
+    try {
+        return response::MakeJSON(http::status::ok, json::parse(*result), req);
+    } catch (const std::invalid_argument&) {
+        return response::MakeError(http::status::internal_server_error, "ParseError", "Parse error", req);
+    }
 }
 
 response::ResponseVariant HandleAPI::HandlePlayerAction(const http::request<http::string_body>& req) {
@@ -136,21 +148,30 @@ response::ResponseVariant HandleAPI::HandlePlayerAction(const http::request<http
         return response::MakeError(
             http::status::unauthorized, "invalidToken"s, "Authorization header is required"s, req);
 
-    // 2. Парсинг тела запроса {"move": "L"}
-    auto body = json::parse(req.body());
-    if (!body.as_object().contains("move")) {
-        return response::MakeError(http::status::bad_request, "invalidArgument", "Missing move field", req);
+    std::string move;
+    json::value body;
+    try {
+        body = json::parse(req.body());
+    } catch (const std::invalid_argument& ex) {
+        return response::MakeError(http::status::internal_server_error, "ParseError", "Parse error", req);
     }
 
-    std::string move = body.as_object().at("move").as_string().c_str();
+    try {
+        if (!body.as_object().contains("move")) {
+            return response::MakeError(http::status::bad_request, "invalidArgument", "Missing move field", req);
+        }
 
-    // Если "move" пустая строка, значит игрок остановился (скорость 0)
-    if (move.empty()) {
-        // Логика остановки
-        // app_.SetPlayerAction(token, std::nullopt);
-        return response::MakeJSON(http::status::ok, json::object{}, req);
+        move = body.as_object().at("move").as_string().c_str();
+
+        // Если "move" пустая строка, значит игрок остановился (скорость 0)
+        if (move.empty()) {
+            // Логика остановки
+            // app_.SetPlayerAction(token, std::nullopt);
+            return response::MakeJSON(http::status::ok, json::object{}, req);
+        }
+    } catch (const std::invalid_argument& ex) {
+        return response::MakeError(http::status::bad_request, "invalidArgument", ex.what(), req);
     }
-
     // 3. Конвертация строки в Direction
     auto direction = StringToDirection(move);
     if (!direction) {
@@ -242,24 +263,6 @@ std::optional<std::string> HandleAPI::ProcessState(const app::Token& token) {
     return json::serialize(result);
 }
 
-/*
-std::optional<std::string> HandleAPI::CheckAuth(const http::request<http::string_body>& req) {
-    auto it = req.find(http::field::authorization);
-    if (it == req.end()) {
-        return std::nullopt;
-    }
-    auto auth = it->value();
-    constexpr std::string_view prefix = "Bearer ";
-    if (!auth.starts_with(prefix)) {
-        return std::nullopt;
-    }
-    std::string token{auth.substr(prefix.size())};
-    if (token.size() != 32u) {
-        return std::nullopt;
-    }
-    return token;
-}
-*/
 std::optional<std::string> HandleAPI::ExtractToken(const http::request<http::string_body>& req) {
     auto it = req.find(http::field::authorization);
     if (it == req.end()) {
@@ -332,15 +335,6 @@ response::ResponseVariant HandleAPI::HandleMapId(const http::request<http::strin
     return response::MakeJSON(http::status::ok, SerializeMap(*map), req);
 }
 
-/*
-std::pair<json::value, bool> HandleAPI::HandleMapId(std::string_view name_map) {
-    const auto* map = app_.GetGame().FindMap(model::Map::Id{std::string(name_map)});
-    if (!map) {
-        return {json::value{}, true};
-    }
-    return {SerializeMap(*map), false};
-}
-*/
 json::object HandleAPI::SerializeMap(const model::Map& map) {
     json::object map_obj;
     map_obj["id"] = *map.GetId();

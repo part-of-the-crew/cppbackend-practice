@@ -21,8 +21,8 @@ std::string ReadFile(const std::filesystem::path& path) {
 
 model::Road ParseRoad(const json::object& obj) {
     model::Point start{coord(obj.at("x0"s).as_int64()), coord(obj.at("y0"s).as_int64())};
-    if (obj.contains("x1"s)) {
-        return {model::Road::HORIZONTAL, start, static_cast<int>(obj.at("x1"s).as_int64())};
+    if (const auto it = obj.find("x1"s); it != obj.cend()) {
+        return {model::Road::HORIZONTAL, start, static_cast<int>(it->value().as_int64())};
     }
     return {model::Road::VERTICAL, start, static_cast<int>(obj.at("y1"s).as_int64())};
 }
@@ -41,8 +41,9 @@ model::Office ParseOffice(const json::object& obj) {
 model::Map ParseMap(const json::value& map_json) {
     const auto& desc = map_json.as_object();
     model::Map map(model::Map::Id{std::string(desc.at("id"s).as_string())}, std::string(desc.at("name"s).as_string()));
-    if (desc.contains("dogSpeed"))
-        map.SetDogSpeed(desc.at("dogSpeed").as_double());
+    
+    if (const auto it = desc.find("dogSpeed"s); it != desc.cend())
+        map.SetDogSpeed(it->value().as_double());
 
     for (const auto& r : desc.at("roads"s).as_array()) {
         map.AddRoad(ParseRoad(r.as_object()));
@@ -64,13 +65,14 @@ model::Game LoadGame(const std::filesystem::path& json_path) {
     model::Game game;
 
     const auto& root = content.as_object();
-    if (!root.contains("maps"s)) {
+    const auto it = root.find("maps"s);
+    if (it == root.cend())
         throw std::runtime_error("JSON has no 'maps'");
-    }
+
     if (root.contains("defaultDogSpeed"s)) {
         game.SetSpeed(root.at("defaultDogSpeed"s).as_double());
     }
-    for (const auto& map_json : root.at("maps"s).as_array()) {
+    for (const auto& map_json : it->value().as_array()) {
         game.AddMap(ParseMap(map_json));
     }
     return game;

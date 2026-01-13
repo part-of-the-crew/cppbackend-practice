@@ -1,7 +1,6 @@
 #include <boost/asio/io_context.hpp>
 #include <boost/asio/signal_set.hpp>
 #include <boost/program_options.hpp>
-#include <chrono>
 #include <iostream>
 #include <thread>
 
@@ -10,6 +9,7 @@
 #include "my_logger.h"
 #include "request_handler.h"
 #include "sdk.h"
+#include "ticker.h"
 
 using namespace std::literals;
 namespace net = boost::asio;
@@ -66,52 +66,6 @@ struct Args {
     return args;
 }
 
-class Ticker : public std::enable_shared_from_this<Ticker> {
-public:
-    using Strand = net::strand<net::io_context::executor_type>;
-    using Handler = std::function<void(std::chrono::milliseconds delta)>;
-
-    // Функция handler будет вызываться внутри strand с интервалом period
-    Ticker(Strand strand, std::chrono::milliseconds period, Handler handler)
-        : strand_{strand}, period_{period}, handler_{std::move(handler)} {}
-
-    void Start() {
-        last_tick_ = Clock::now();
-        net::dispatch(strand_, [self = shared_from_this()] { self->ScheduleTick(); });
-    }
-
-private:
-    void ScheduleTick() {
-        assert(strand_.running_in_this_thread());
-        timer_.expires_after(period_);
-        timer_.async_wait([self = shared_from_this()](sys::error_code ec) { self->OnTick(ec); });
-    }
-
-    void OnTick(sys::error_code ec) {
-        using namespace std::chrono;
-        assert(strand_.running_in_this_thread());
-
-        if (!ec) {
-            auto this_tick = Clock::now();
-            auto delta = duration_cast<milliseconds>(this_tick - last_tick_);
-            last_tick_ = this_tick;
-            try {
-                handler_(delta);
-            } catch (...) {
-            }
-            ScheduleTick();
-        }
-    }
-
-    using Clock = std::chrono::steady_clock;
-
-    Strand strand_;
-    std::chrono::milliseconds period_;
-    net::steady_timer timer_{strand_};
-    Handler handler_;
-    std::chrono::steady_clock::time_point last_tick_;
-};
-
 int main(int argc, const char* argv[]) {
     auto args = ParseCommandLine(argc, argv);
     if (!args) {
@@ -147,7 +101,7 @@ int main(int argc, const char* argv[]) {
         http_server::ServeHttp(ioc, {address, port}, logging_handler);
 
         if (args->tickPeriod > 0) {
-            auto ticker = std::make_shared<Ticker>(
+            auto ticker = std::make_shared<ticker::Ticker>(
                 api_strand, std::chrono::milliseconds{args->tickPeriod}, [&application](std::chrono::milliseconds ms) {
                     application.MakeTick(static_cast<std::uint64_t>(ms.count()));
                 });
