@@ -18,7 +18,6 @@ namespace http_handler {
 
 namespace beast = boost::beast;
 namespace http = beast::http;
-namespace json = boost::json;
 namespace fs = std::filesystem;
 namespace net = boost::asio;
 using tcp = net::ip::tcp;
@@ -43,7 +42,7 @@ struct ResponseSender {
     }
 };
 
-class RequestHandler {
+class RequestHandler : public std::enable_shared_from_this<RequestHandler>{
 public:
     using Strand = net::strand<net::io_context::executor_type>;
 
@@ -60,10 +59,13 @@ public:
         // 1. Check for API requests FIRST. 
         // We move 'req' and 'send' into the lambda, so we cannot use them afterwards.
         if (req.target().starts_with("/api/")) {
-            auto task = [this, req = std::move(req), send = std::forward<Send>(send)]() mutable {
+            auto task = [self = shared_from_this(), req = std::move(req), send = std::forward<Send>(send)]() mutable {
+            //auto task = [this, req = std::move(req), send = std::forward<Send>(send)]() mutable {
                 // Re-create the visitor INSIDE the lambda where 'send' is valid
-                ResponseSender<Send> visitor{send, req.method()};
-                std::visit(visitor, handleAPI_(req));
+                ResponseSender<std::decay_t<Send>> visitor{send, req.method()};
+                // ResponseSender<Send> visitor{send, req.method()};
+                //std::visit(visitor, handleAPI_(req));
+                std::visit(visitor, self->handleAPI_(req));
             };
             return net::dispatch(api_strand_, std::move(task));
         }
@@ -88,8 +90,8 @@ private:
     response::ResponseVariant HandleStatic(const Request& req) {
         std::string decoded_target = UrlDecode(req.target());
         fs::path rel_path{decoded_target.substr(1)};
-        fs::path full_path = fs::weakly_canonical(path_to_static_ / rel_path);
-
+        fs::path full_path = path_to_static_ / rel_path;
+        //fs::path full_path = fs::weakly_canonical(path_to_static_ / rel_path);
         if (!IsSubPath(full_path, path_to_static_)) {
             return response::MakeTextError(http::status::bad_request, "Request is badly formed", req);
         }

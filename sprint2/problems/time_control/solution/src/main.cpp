@@ -1,14 +1,12 @@
 #include <boost/asio/io_context.hpp>
 #include <boost/asio/signal_set.hpp>
-#include <chrono>
 #include <iostream>
 #include <thread>
 
 #include "http_server.h"
-#include "json_loader.h"
 #include "my_logger.h"
 #include "request_handler.h"
-#include "sdk.h"
+#include "json_loader.h"
 
 using namespace std::literals;
 namespace net = boost::asio;
@@ -54,8 +52,8 @@ int main(int argc, const char* argv[]) {
         const auto address = net::ip::make_address("0.0.0.0");
         constexpr net::ip::port_type port = 8080;
 
-        http_handler::RequestHandler handler{path_to_static, api_strand, application};
-
+        //http_handler::RequestHandler handler{path_to_static, api_strand, application};
+        auto handler = std::make_shared<http_handler::RequestHandler>(path_to_static, api_strand, application);
         logger::LoggingRequestHandler logging_handler{handler};
 
         http_server::ServeHttp(ioc, {address, port}, logging_handler);
