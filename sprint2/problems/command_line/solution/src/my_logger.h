@@ -17,9 +17,7 @@ using namespace std::literals;
 namespace logger {
 namespace logging = boost::log;
 namespace json = boost::json;
-namespace keywords = logging::keywords;
 namespace sinks = boost::log::sinks;
-namespace expr = boost::log::expressions;
 
 BOOST_LOG_ATTRIBUTE_KEYWORD(json_data, "JsonData", json::value)
 BOOST_LOG_ATTRIBUTE_KEYWORD(timestamp, "TimeStamp", boost::posix_time::ptime)
@@ -145,42 +143,66 @@ inline void LogNetError(int code, std::string what, std::string_view where) {
 namespace net = boost::asio;
 using tcp = net::ip::tcp;
 
+// Helper to check if it's a shared_ptr
+template <typename T>
+struct is_shared_ptr : std::false_type {};
+template <typename T>
+struct is_shared_ptr<std::shared_ptr<T>> : std::true_type {};
+template <typename T>
+inline constexpr bool is_shared_ptr_v = is_shared_ptr<T>::value;
+
 template <class Handler>
 class LoggingRequestHandler {
 public:
-    explicit LoggingRequestHandler(Handler& handler) : handler_(handler) {}
-
+    // explicit LoggingRequestHandler(Handler& handler) : handler_(handler) {}
+    explicit LoggingRequestHandler(Handler handler) : handler_(std::move(handler)) {}
     template <class Request, class Send>
-    void operator()(tcp::endpoint& endpoint, Request&& req, Send&& send) {
-        LogRequest(req);
+    void operator()(tcp::endpoint ep, Request&& req, Send&& send) {
+        // 1. Record start time locally (on the stack, not in a member variable)
+        auto start_ts = std::chrono::system_clock::now();
 
-        // Wrap send to intercept the response
-        auto logged_send = [this, &send](auto&& response) {
-            LogResponse(response);
+        // 2. Extract request info before moving req
+        std::string ip = ep.address().to_string();
+        std::string uri{req.target()};
+        std::string method{req.method_string()};
+
+        // 3. Log the request immediately
+        logger::LogServerRequest(ip, uri, method);
+
+        // 4. Create the completion wrapper
+        // Capture start_ts and ip by VALUE so each request has its own copy
+        auto logged_send = [start_ts, ip, send = std::forward<Send>(send)](auto&& response) mutable {
+            // Calculate duration
+            auto duration =
+                std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now() - start_ts);
+
+            // Extract response metadata
+            int status_code = response.result_int();
+            std::string content_type = "unknown";
+            auto it = response.find(boost::beast::http::field::content_type);
+            if (it != response.end()) {
+                content_type = std::string(it->value());
+            }
+
+            // Log the response
+            logger::LogServerResponse(duration.count(), status_code, content_type);
+
+            // Finally, call the original send
             send(std::forward<decltype(response)>(response));
         };
 
-        handler_(endpoint, std::forward<Request>(req), logged_send);
+        // 5. Pass the request to the actual handler
+        // handler_(ep, std::forward<Request>(req), std::move(logged_send));
+        if constexpr (is_shared_ptr_v<Handler>) {
+            (*handler_)(ep, std::forward<Request>(req), std::move(logged_send));
+        } else {
+            handler_(ep, std::forward<Request>(req), std::move(logged_send));
+        }
     }
 
 private:
-    Handler& handler_;
-    std::chrono::system_clock::time_point start_ts_{};
-    template <class Request>
-    void LogRequest(const Request& req) {
-        start_ts_ = std::chrono::system_clock::now();
-    }
-
-    template <class Response>
-    void LogResponse(const Response& resp) {
-        auto ms = duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now() - start_ts_);
-        std::string content_type = "unknown";
-        if (resp.find(boost::beast::http::field::content_type) != resp.end()) {
-            content_type = std::string(resp[boost::beast::http::field::content_type]);
-        }
-
-        logger::LogServerResponse(ms.count(), resp.result_int(), content_type);
-    }
+    Handler handler_;
+    // No more start_ts_ here!
 };
 
 }  // namespace logger

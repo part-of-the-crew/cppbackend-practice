@@ -23,6 +23,10 @@ add_executable(game_server
     src/app.cpp
 )
 
+target_compile_options(game_server PRIVATE
+  -g
+)
+
 target_link_libraries(game_server PRIVATE 
     Threads::Threads
     CONAN_PKG::boost

@@ -1,15 +1,10 @@
 #pragma once
 #define BOOST_BEAST_USE_STD_STRING_VIEW
-#include <algorithm>
 #include <boost/beast/http.hpp>
 #include <boost/json.hpp>
-#include <filesystem>
-#include <optional>
 #include <string>
 #include <string_view>
-#include <tuple>  // Required for std::tie
 #include <variant>
-#include <vector>
 
 #include "http_server.h"
 
@@ -18,7 +13,6 @@ namespace response {
 namespace beast = boost::beast;
 namespace http = beast::http;
 namespace json = boost::json;
-namespace fs = std::filesystem;
 namespace net = boost::asio;
 using tcp = net::ip::tcp;
 using namespace std::literals;

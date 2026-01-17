@@ -41,7 +41,7 @@ model::Office ParseOffice(const json::object& obj) {
 model::Map ParseMap(const json::value& map_json) {
     const auto& desc = map_json.as_object();
     model::Map map(model::Map::Id{std::string(desc.at("id"s).as_string())}, std::string(desc.at("name"s).as_string()));
-    
+
     if (const auto it = desc.find("dogSpeed"s); it != desc.cend())
         map.SetDogSpeed(it->value().as_double());
 

@@ -7,7 +7,6 @@
 #include <iostream>
 
 #include "my_logger.h"
-#include "sdk.h"
 
 namespace http_server {
 
@@ -23,7 +22,7 @@ inline void ReportError(beast::error_code ec, std::string_view what) {
     logger::LogNetError(ec.value(), ec.message(), what);
 }
 
-class SessionBase {
+class SessionBase : public std::enable_shared_from_this<SessionBase> {
 public:
     // Запрещаем копирование и присваивание объектов SessionBase и его наследников
     SessionBase(const SessionBase&) = delete;
@@ -31,19 +30,20 @@ public:
 
     void Run();
 
-protected:
+    // protected:
     explicit SessionBase(tcp::socket&& socket) : stream_(std::move(socket)) {}
 
     using HttpRequest = http::request<http::string_body>;
 
-    ~SessionBase() = default;
+    virtual ~SessionBase() = default;
 
     template <typename Body, typename Fields>
     void Write(http::response<Body, Fields>&& response) {
         // Запись выполняется асинхронно, поэтому response перемещаем в область кучи
         auto safe_response = std::make_shared<http::response<Body, Fields>>(std::move(response));
 
-        auto self = GetSharedThis();
+        auto self = shared_from_this();
+
         http::async_write(
             stream_, *safe_response, [safe_response, self](beast::error_code ec, std::size_t bytes_written) {
                 self->OnWrite(safe_response->need_eof(), ec, bytes_written);
@@ -57,9 +57,8 @@ private:
         request_ = {};
         stream_.expires_after(30s);
         // Считываем request_ из stream_, используя buffer_ для хранения считанных данных
-        http::async_read(stream_, buffer_, request_,
-            // По окончании операции будет вызван метод OnRead
-            beast::bind_front_handler(&SessionBase::OnRead, GetSharedThis()));
+        http::async_read(
+            stream_, buffer_, request_, beast::bind_front_handler(&SessionBase::OnRead, shared_from_this()));
     }
 
     void OnRead(beast::error_code ec, [[maybe_unused]] std::size_t bytes_read) {
@@ -88,7 +87,7 @@ private:
     }
     void Close() {
         beast::error_code ec;
-        stream_.socket().shutdown(tcp::socket::shutdown_send, ec);
+        ec = stream_.socket().shutdown(tcp::socket::shutdown_send, ec);
         ReportError(ec, "tcp::socket::shutdown_send"sv);
     }
 
@@ -102,43 +101,32 @@ protected:
 private:
     beast::flat_buffer buffer_;
     HttpRequest request_;
-    virtual std::shared_ptr<SessionBase> GetSharedThis() = 0;
+    // virtual std::shared_ptr<SessionBase> GetSharedThis() = 0;
 };
 
 template <typename RequestHandler>
-class Session : public SessionBase, public std::enable_shared_from_this<Session<RequestHandler>> {
+class Session : public SessionBase {
 public:
     template <typename Handler>
     Session(tcp::socket&& socket, Handler&& request_handler)
-        : SessionBase(std::move(socket)), request_handler_(std::forward<Handler>(request_handler)) {}
-
-private:
-    // FIX 1: Implement the pure virtual method to safely retrieve a shared_ptr to SessionBase.
-    std::shared_ptr<SessionBase> GetSharedThis() override {
-        // We use static_pointer_cast to explicitly cast the derived shared_ptr to the base type.
-        return std::static_pointer_cast<SessionBase>(this->shared_from_this());
+        : SessionBase(std::move(socket)), request_handler_(std::forward<Handler>(request_handler)) {
+        endpoint_ = SessionBase::stream_.socket().remote_endpoint();
     }
 
+private:
     // FIX 2: Implement the pure virtual method to handle the request.
     void HandleRequest(HttpRequest&& request) override {
         tcp::endpoint remote = SessionBase::stream_.socket().remote_endpoint();
-        logger::LogServerRequest(
-            remote.address().to_string(), std::string(request.target()), std::string(request.method_string()));
-        // std::chrono::system_clock::time_point start_ts_ = std::chrono::system_clock::now();
-        //  The user's request_handler expects a sender function.
-        //  We provide a lambda as the sender, which calls SessionBase::Write().
-        //  We capture 'self' (a shared_ptr to this session) to ensure the Session object
-        //  remains alive until the asynchronous Write operation is complete.
-        request_handler_(remote, std::move(request), [self = this->shared_from_this()](auto&& response) {
-            self->Write(std::forward<decltype(response)>(response));
-        });
-        // std::chrono::system_clock::time_point end_ts = std::chrono::system_clock::now();
+        std::string ip = endpoint_.address().to_string();
+        std::string url(request.target());
+        std::string method(request.method_string());
 
-        // logger::LogServerResponse(std::to_string((end_ts - start_ts_).count()),
-        //                         http::response<T>::result_int(), request.method_string());
+        logger::LogServerRequest(ip, url, method);
+        request_handler_(remote, std::move(request),
+            [self = shared_from_this()](auto&& response) { self->Write(std::forward<decltype(response)>(response)); });
     }
-
-    RequestHandler request_handler_;
+    tcp::endpoint endpoint_;
+    RequestHandler& request_handler_;
 };
 
 template <typename RequestHandler>
@@ -205,7 +193,7 @@ private:
 
     net::io_context& ioc_;
     tcp::acceptor acceptor_;
-    RequestHandler request_handler_;
+    RequestHandler& request_handler_;
 };
 
 template <typename RequestHandler>

@@ -8,7 +8,6 @@
 #include "json_loader.h"
 #include "my_logger.h"
 #include "request_handler.h"
-#include "sdk.h"
 #include "ticker.h"
 
 using namespace std::literals;
@@ -94,8 +93,8 @@ int main(int argc, const char* argv[]) {
         const auto address = net::ip::make_address("0.0.0.0");
         constexpr net::ip::port_type port = 8080;
 
-        http_handler::RequestHandler handler{args->pathToStatic, api_strand, application};
-
+        // http_handler::RequestHandler handler{args->pathToStatic, api_strand, application};
+        auto handler = std::make_shared<http_handler::RequestHandler>(args->pathToStatic, api_strand, application);
         logger::LoggingRequestHandler logging_handler{handler};
 
         http_server::ServeHttp(ioc, {address, port}, logging_handler);

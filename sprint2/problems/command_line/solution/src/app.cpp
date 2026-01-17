@@ -104,72 +104,13 @@ bool Application::SetPlayerAction(const Token& token, std::optional<model::Direc
     return true;
 }
 
-double ClampOnAxis(
-    double next_coord,
-    double curr_coord,
-    double curr_perp,
-    const std::vector<model::Road>& parallel_roads,
-    const std::vector<model::Road>& crossing_roads,
-    model::Coord model::Point::*main_axis,
-    model::Coord model::Point::*perp_axis
-) {
-    std::optional<double> min_bound;
-    std::optional<double> max_bound;
-
-    auto update_bounds = [&](double low, double high) {
-        if (!min_bound) {
-            min_bound = low;
-            max_bound = high;
-        } else {
-            min_bound = std::max(*min_bound, low);
-            max_bound = std::min(*max_bound, high);
-        }
-    };
-
-    // Roads along movement
-    for (const auto& road : parallel_roads) {
-        double a = road.GetStart().*main_axis;
-        double b = road.GetEnd().*main_axis;
-
-        double r_min = std::min(a, b) - model::Road::HALF_WIDTH;
-        double r_max = std::max(a, b) + model::Road::HALF_WIDTH;
-
-        if (curr_coord >= r_min && curr_coord <= r_max) {
-            update_bounds(r_min, r_max);
-        }
-    }
-
-    // Crossing roads
-    for (const auto& road : crossing_roads) {
-        double p0 = road.GetStart().*perp_axis;
-        double p1 = road.GetEnd().*perp_axis;
-
-        double r_min = std::min(p0, p1) - model::Road::HALF_WIDTH;
-        double r_max = std::max(p0, p1) + model::Road::HALF_WIDTH;
-
-        if (curr_perp >= r_min && curr_perp <= r_max) {
-            double fixed = road.GetStart().*main_axis;
-            update_bounds(
-                fixed - model::Road::HALF_WIDTH,
-                fixed + model::Road::HALF_WIDTH
-            );
-        }
-    }
-
-    if (!min_bound) {
-        return next_coord;
-    }
-
-    return std::clamp(next_coord, *min_bound, *max_bound);
-}
-
+// Helper: check boundaries
 model::Position CalculateNewPosition(
     const model::Map* map, model::Position current_pos, model::Speed speed, double dt) {
     model::Position next_pos;
     next_pos.x = current_pos.x + speed.ux * dt;
     next_pos.y = current_pos.y + speed.uy * dt;
 
-    // Optimization: If not moving, don't calculate bounds
     if (speed.ux == 0.0 && speed.uy == 0.0) {
         return current_pos;
     }
@@ -177,16 +118,71 @@ model::Position CalculateNewPosition(
     int curr_x_idx = static_cast<int>(std::round(current_pos.x));
     int curr_y_idx = static_cast<int>(std::round(current_pos.y));
 
-    if (speed.ux != 0) {
-        next_pos.x = ClampOnAxis(next_pos.x, current_pos.x, current_pos.y, map->GetRoadsByY(curr_y_idx),
-            map->GetRoadsByX(curr_x_idx), &model::Point::x, &model::Point::y);
-        next_pos.y = current_pos.y;
-    } else {
-        next_pos.y = ClampOnAxis(next_pos.y, current_pos.y, current_pos.x, map->GetRoadsByX(curr_x_idx),
-            map->GetRoadsByY(curr_y_idx), &model::Point::y, &model::Point::x);
-        next_pos.x = current_pos.x;
-    }
+    // Limits for clamping
+    double min_bound = -1e9, max_bound = 1e9;
+    bool first_match = true;
 
+    auto update_bounds = [&](double low, double high) {
+        if (first_match) {
+            min_bound = low;
+            max_bound = high;
+            first_match = false;
+        } else {
+            min_bound = std::min(min_bound, low);
+            max_bound = std::max(max_bound, high);
+        }
+    };
+
+    if (speed.ux != 0) {
+        // Horizontal movement: Check Roads by Y (main movement roads)
+        for (const auto& road : map->GetRoadsByY(curr_y_idx)) {
+            double r_min = std::min(road.GetStart().x, road.GetEnd().x);
+            double r_max = std::max(road.GetStart().x, road.GetEnd().x);
+            double road_half_width = model::Road::HALF_WIDTH;
+            double valid_min = r_min - road_half_width;
+            double valid_max = r_max + road_half_width;
+
+            if (current_pos.x >= valid_min && current_pos.x <= valid_max) {
+                update_bounds(valid_min, valid_max);
+            }
+        }
+        // Horizontal movement: Check Crossing Vertical Roads
+        for (const auto& road : map->GetRoadsByX(curr_x_idx)) {
+            double r_min = std::min(road.GetStart().y, road.GetEnd().y);
+            double r_max = std::max(road.GetStart().y, road.GetEnd().y);
+            double road_half_width = model::Road::HALF_WIDTH;
+            if (current_pos.y >= r_min - road_half_width && current_pos.y <= r_max + road_half_width) {
+                double v_min = road.GetStart().x - road_half_width;
+                double v_max = road.GetStart().x + road_half_width;
+                update_bounds(v_min, v_max);
+            }
+        }
+        next_pos.x = std::clamp(next_pos.x, min_bound, max_bound);
+    } else {
+        // Vertical movement
+        for (const auto& road : map->GetRoadsByX(curr_x_idx)) {
+            double r_min = std::min(road.GetStart().y, road.GetEnd().y);
+            double r_max = std::max(road.GetStart().y, road.GetEnd().y);
+            double road_half_width = model::Road::HALF_WIDTH;
+            double valid_min = r_min - road_half_width;
+            double valid_max = r_max + road_half_width;
+
+            if (current_pos.y >= valid_min && current_pos.y <= valid_max) {
+                update_bounds(valid_min, valid_max);
+            }
+        }
+        for (const auto& road : map->GetRoadsByY(curr_y_idx)) {
+            double r_min = std::min(road.GetStart().x, road.GetEnd().x);
+            double r_max = std::max(road.GetStart().x, road.GetEnd().x);
+            double road_half_width = model::Road::HALF_WIDTH;
+            if (current_pos.x >= r_min - road_half_width && current_pos.x <= r_max + road_half_width) {
+                double h_min = road.GetStart().y - road_half_width;
+                double h_max = road.GetStart().y + road_half_width;
+                update_bounds(h_min, h_max);
+            }
+        }
+        next_pos.y = std::clamp(next_pos.y, min_bound, max_bound);
+    }
     return next_pos;
 }
 
