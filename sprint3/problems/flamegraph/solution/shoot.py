@@ -4,6 +4,8 @@ import time
 import random
 import shlex
 
+from pathlib import Path
+
 RANDOM_LIMIT = 1000
 SEED = 123456789
 random.seed(SEED)
@@ -48,6 +50,19 @@ def make_shots():
     print('Shooting complete')
 
 
+
+result = "flame.svg"
+
+try:
+    #Path(result).unlink()
+    if Path(result).is_file():
+        Path(result).unlink()
+except FileNotFoundError:
+    pass
+
+
+
+
 server = run('perf record -g -o perf.data ' + start_server())
 time.sleep(0.5)   # let server start
 make_shots()
@@ -57,7 +72,7 @@ time.sleep(0.5)   # allow perf to flush
 
 # 1. Get the raw script output
 p1 = subprocess.Popen(
-    ["perf", "script"],
+    ["perf", "script", "-i", "perf.data"],
     stdout=subprocess.PIPE
 )
 
@@ -81,7 +96,7 @@ p2 = subprocess.Popen(
 p3 = subprocess.Popen(
     ["./FlameGraph/flamegraph.pl"],
     stdin=p2.stdout,
-    stdout=open("graph.svg", "wb")
+    stdout=open(result, "wb")
 )
 
 # Clean up pipes to prevent hanging
@@ -95,4 +110,4 @@ for p in (p1, p1_5, p2, p3):
     if code not in (0, 141):
         raise RuntimeError(f"{p.args} failed with {code}")
 
-print("Flamegraph written to graph.svg")        
+print("Flamegraph written to " + result)        
