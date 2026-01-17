@@ -1,0 +1,21 @@
+[Connection: close]
+[Host: cppserver]
+[Cookie: None]
+/api/v1/maps 
+/api/v1/maps/map1
+
+188 join_request
+POST /api/v1/game/join HTTP/1.1
+Host: localhost:8080
+Content-Type: application/json
+Content-Length: 39
+
+{"userName":"Scooby1","mapId":"map1"}
+
+179 tick_request
+POST /api/v1/game/tick HTTP/1.1
+Host: localhost:8080
+Content-Type: application/json
+Content-Length: 18
+
+{"timeDelta":100}
