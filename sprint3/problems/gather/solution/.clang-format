@@ -1,0 +1,49 @@
+BasedOnStyle: Google
+Standard: Latest
+
+IndentWidth: 4
+TabWidth: 4
+UseTab: Never
+
+ColumnLimit: 110
+
+AllowShortFunctionsOnASingleLine: false
+AllowShortIfStatementsOnASingleLine: false
+AllowShortLoopsOnASingleLine: false
+
+
+BreakConstructorInitializers: BeforeComma
+ConstructorInitializerIndentWidth: 4
+ConstructorInitializerAllOnOneLineOrOnePerLine: true
+
+AlignAfterOpenBracket: DontAlign
+AllowAllConstructorInitializersOnNextLine: true
+
+BraceWrapping:
+  AfterFunction: true
+  AfterClass: true
+
+
+
+SpacesBeforeTrailingComments: 2
+# === BRACE STYLE ===
+BreakBeforeBraces: Attach        # ← THIS KEEPS '{' ON SAME LINE
+# Keep access specifiers (public, private, protected) unindented
+IndentAccessModifiers: false
+AccessModifierOffset: -4
+
+# Regroup only standard library includes
+IncludeBlocks: Regroup
+SortIncludes: true
+
+# Categorize includes
+IncludeCategories:
+  - Regex: '^<.*>$'
+    Priority: 1   # Standard library includes
+  - Regex: '.*'
+    Priority: 2   # Everything else (project headers)
+
+PointerAlignment: Left
+DerivePointerAlignment: false
+
+SpaceBeforeParens: ControlStatements
