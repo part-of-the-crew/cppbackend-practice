@@ -1,12 +1,12 @@
 # Не просто создаём образ, но даём ему имя build
-FROM gcc:11.3 as build
+FROM gcc:11.3 AS build
 
 RUN apt update && \
     apt install -y \
       python3-pip \
       cmake \
     && \
-    pip3 install conan==1.53.0
+    pip3 install conan==1.*
 
 COPY conanfile.txt /app/
 RUN mkdir /app/build && cd /app/build && \
