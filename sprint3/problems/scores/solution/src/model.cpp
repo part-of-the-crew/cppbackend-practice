@@ -2,7 +2,6 @@
 
 #include <algorithm>  // For std::min, std::max
 #include <cmath>
-#include <random>
 #include <stdexcept>
 
 namespace model {
@@ -86,50 +85,20 @@ GameSession* Game::FindSession(const Map::Id& id) {
     return session.get();
 }
 
-const Road& PickRamdomRoad(const model::Map::Roads& roads) {
-    // Инициализируем генератор случайных чисел
-    // (лучше сделать его static thread_local, чтобы не создавать каждый раз)
-    static thread_local std::random_device rd;
-    static thread_local std::mt19937 gen(rd());
+geom::Position Map::GetRandomPositionOnRoad(std::mt19937& gen) const {
+    std::uniform_int_distribution<size_t> road_dist(0, roads_.size() - 1);
+    const auto& road = roads_.at(road_dist(gen));
 
-    // 1. Выбираем случайную дорогу (равномерное распределение по индексу)
-    std::uniform_int_distribution<size_t> road_dist(0, roads.size() - 1);
-    return roads[road_dist(gen)];
-}
-
-static geom::Position PickRamdomPosition(const model::Road& road) {
-    geom::Position start_pos;
-    static thread_local std::random_device rd;
-    static thread_local std::mt19937 gen(rd());
-
+    auto uniform = [&](double a, double b) {
+        std::uniform_real_distribution<double> d(std::min(a, b), std::max(a, b));
+        return d(gen);
+    };
     if (road.IsHorizontal()) {
-        // Дорога горизонтальная: Y фиксирован, X меняется
-        start_pos.y = static_cast<double>(road.GetStart().y);
-
-        double min_x = std::min(road.GetStart().x, road.GetEnd().x);
-        double max_x = std::max(road.GetStart().x, road.GetEnd().x);
-
-        std::uniform_real_distribution<double> coord_dist(min_x, max_x);
-        start_pos.x = coord_dist(gen);
-    } else {
-        // Дорога вертикальная: X фиксирован, Y меняется
-        start_pos.x = static_cast<double>(road.GetStart().x);
-
-        double min_y = std::min(road.GetStart().y, road.GetEnd().y);
-        double max_y = std::max(road.GetStart().y, road.GetEnd().y);
-
-        std::uniform_real_distribution<double> coord_dist(min_y, max_y);
-        start_pos.y = coord_dist(gen);
+        return geom::Position{
+            .x = uniform(road.GetStart().x, road.GetEnd().x), .y = static_cast<double>(road.GetStart().y)};
     }
-    return start_pos;
-}
-
-geom::Position GameSession::GenerateRamdomPosition(void) const {
-    const auto& roads = map_->GetRoads();
-    if (roads.empty()) {
-        throw std::runtime_error("Map has no roads to spawn a dog");
-    }
-    return PickRamdomPosition(PickRamdomRoad(roads));
+    return geom::Position{
+        .x = static_cast<double>(road.GetStart().x), .y = uniform(road.GetStart().y, road.GetEnd().y)};
 }
 
 Dog* GameSession::AddDog(std::string_view name) {
@@ -140,7 +109,7 @@ Dog* GameSession::AddDog(std::string_view name) {
 
     geom::Position start_pos;
     if (map_->GetRandomSpawn()) {
-        start_pos = PickRamdomPosition(PickRamdomRoad(roads));
+        start_pos = map_->GetRandomPositionOnRoad(gen_);
     } else {
         // Determine spawn point: start of the first road
         const auto& first_road = roads[0];

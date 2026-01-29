@@ -52,7 +52,6 @@ private:
     JoinOutcome ProcessJoinGame(const app::AuthRequest& params);
     std::string ProcessPlayers(const std::string& token);
     std::optional<std::string> ProcessState(const app::Token& token);
-    // std::optional<std::string> ProcessPlayerAction(const app::Token& token);
 
     json::object SerializeMap(const model::Map& map);
     json::object SerializeRoad(const model::Road& road);

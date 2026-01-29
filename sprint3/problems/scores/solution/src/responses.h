@@ -52,20 +52,7 @@ ResponseVariant MakeJSON(
 
     return res;
 }
-/*
-template <typename Request>
-ResponseVariant MakeJSON(
-    http::status status, std::string body, const Request& req, std::string cache_control = "no-cache"s) {
-    http::response<http::string_body> res{status, req.version()};
-    res.set(http::field::content_type, ContentType::APP_JSON);
-    res.set(http::field::cache_control, cache_control);
-    res.body() = std::move(body);
-    res.prepare_payload();
-    res.keep_alive(req.keep_alive());
 
-    return res;
-}
-*/
 template <typename Request>
 ResponseVariant MakeError(http::status status, std::string_view code, std::string_view message,
     const Request& req, std::string cache_control = "no-cache"s) {

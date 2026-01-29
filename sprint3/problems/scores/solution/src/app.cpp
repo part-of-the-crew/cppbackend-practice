@@ -4,7 +4,6 @@
 #include <cmath>
 #include <iomanip>
 #include <iostream>
-#include <limits>
 #include <ranges>
 #include <sstream>
 #include <stdexcept>
@@ -13,7 +12,7 @@
 
 namespace app {
 
-constexpr double eps = std::numeric_limits<double>::epsilon();
+constexpr double eps = 1e9;
 
 using namespace std::literals;
 
@@ -116,85 +115,80 @@ bool Application::SetPlayerAction(const Token& token, std::optional<geom::Direct
 // Helper: check boundaries
 geom::Position CalculateNewPosition(
     const model::Map* map, geom::Position current_pos, geom::Speed speed, double dt) {
-    geom::Position next_pos;
-    next_pos.x = current_pos.x + speed.ux * dt;
-    next_pos.y = current_pos.y + speed.uy * dt;
-
     if (speed.ux == 0.0 && speed.uy == 0.0) {
         return current_pos;
     }
 
-    int curr_x_idx = static_cast<int>(std::round(current_pos.x));
-    int curr_y_idx = static_cast<int>(std::round(current_pos.y));
+    geom::Position next_pos = {current_pos.x + speed.ux * dt, current_pos.y + speed.uy * dt};
 
-    // Limits for clamping
-    double min_bound = -1e9, max_bound = 1e9;
-    bool first_match = true;
+    // Helper to calculate bounds for the axis being moved
+    auto get_axis_bounds = [&](double move_coord, double stay_coord, const model::Map::Roads& parallel_roads,
+                               const model::Map::Roads& perpendicular_roads, bool moving_horizontally) {
+        double min_b = -eps, max_b = eps;
+        bool first = true;
 
-    auto update_bounds = [&](double low, double high) {
-        if (first_match) {
-            min_bound = low;
-            max_bound = high;
-            first_match = false;
-        } else {
-            min_bound = std::min(min_bound, low);
-            max_bound = std::max(max_bound, high);
+        auto update = [&](double low, double high) {
+            if (first) {
+                min_b = low;
+                max_b = high;
+                first = false;
+            } else {
+                min_b = std::min(min_b, low);
+                max_b = std::max(max_b, high);
+            }
+        };
+
+        for (const auto& road : parallel_roads) {
+            // FIX: Use std::min and std::max separately to ensure we store values, not references
+            double r_min = moving_horizontally ? std::min(road.GetStart().x, road.GetEnd().x)
+                                               : std::min(road.GetStart().y, road.GetEnd().y);
+
+            double r_max = moving_horizontally ? std::max(road.GetStart().x, road.GetEnd().x)
+                                               : std::max(road.GetStart().y, road.GetEnd().y);
+
+            double valid_min = r_min - model::Road::HALF_WIDTH;
+            double valid_max = r_max + model::Road::HALF_WIDTH;
+
+            if (move_coord >= valid_min && move_coord <= valid_max) {
+                update(valid_min, valid_max);
+            }
         }
+
+        // Check perpendicular roads
+        for (const auto& road : perpendicular_roads) {
+            // FIX: Same logic here
+            double r_min = moving_horizontally ? std::min(road.GetStart().y, road.GetEnd().y)
+                                               : std::min(road.GetStart().x, road.GetEnd().x);
+
+            double r_max = moving_horizontally ? std::max(road.GetStart().y, road.GetEnd().y)
+                                               : std::max(road.GetStart().x, road.GetEnd().x);
+
+            double valid_min = r_min - model::Road::HALF_WIDTH;
+            double valid_max = r_max + model::Road::HALF_WIDTH;
+
+            if (stay_coord >= valid_min && stay_coord <= valid_max) {
+                double cross_pos = moving_horizontally ? road.GetStart().x : road.GetStart().y;
+                update(cross_pos - model::Road::HALF_WIDTH, cross_pos + model::Road::HALF_WIDTH);
+            }
+        }
+        return std::make_pair(min_b, max_b);
     };
 
+    // Determine which axis we are moving on and call the helper
     if (speed.ux != 0) {
-        // Horizontal movement: Check Roads by Y (main movement roads)
-        for (const auto& road : map->GetRoadsByY(curr_y_idx)) {
-            double r_min = std::min(road.GetStart().x, road.GetEnd().x);
-            double r_max = std::max(road.GetStart().x, road.GetEnd().x);
-            double road_half_width = model::Road::HALF_WIDTH;
-            double valid_min = r_min - road_half_width;
-            double valid_max = r_max + road_half_width;
-
-            if (current_pos.x >= valid_min && current_pos.x <= valid_max) {
-                update_bounds(valid_min, valid_max);
-            }
-        }
-        // Horizontal movement: Check Crossing Vertical Roads
-        for (const auto& road : map->GetRoadsByX(curr_x_idx)) {
-            double r_min = std::min(road.GetStart().y, road.GetEnd().y);
-            double r_max = std::max(road.GetStart().y, road.GetEnd().y);
-            double road_half_width = model::Road::HALF_WIDTH;
-            if (current_pos.y >= r_min - road_half_width && current_pos.y <= r_max + road_half_width) {
-                double v_min = road.GetStart().x - road_half_width;
-                double v_max = road.GetStart().x + road_half_width;
-                update_bounds(v_min, v_max);
-            }
-        }
-        next_pos.x = std::clamp(next_pos.x, min_bound, max_bound);
+        auto [min_x, max_x] = get_axis_bounds(current_pos.x, current_pos.y,
+            map->GetRoadsByY(static_cast<int>(std::round(current_pos.y))),
+            map->GetRoadsByX(static_cast<int>(std::round(current_pos.x))), true);
+        next_pos.x = std::clamp(next_pos.x, min_x, max_x);
     } else {
-        // Vertical movement
-        for (const auto& road : map->GetRoadsByX(curr_x_idx)) {
-            double r_min = std::min(road.GetStart().y, road.GetEnd().y);
-            double r_max = std::max(road.GetStart().y, road.GetEnd().y);
-            double road_half_width = model::Road::HALF_WIDTH;
-            double valid_min = r_min - road_half_width;
-            double valid_max = r_max + road_half_width;
-
-            if (current_pos.y >= valid_min && current_pos.y <= valid_max) {
-                update_bounds(valid_min, valid_max);
-            }
-        }
-        for (const auto& road : map->GetRoadsByY(curr_y_idx)) {
-            double r_min = std::min(road.GetStart().x, road.GetEnd().x);
-            double r_max = std::max(road.GetStart().x, road.GetEnd().x);
-            double road_half_width = model::Road::HALF_WIDTH;
-            if (current_pos.x >= r_min - road_half_width && current_pos.x <= r_max + road_half_width) {
-                double h_min = road.GetStart().y - road_half_width;
-                double h_max = road.GetStart().y + road_half_width;
-                update_bounds(h_min, h_max);
-            }
-        }
-        next_pos.y = std::clamp(next_pos.y, min_bound, max_bound);
+        auto [min_y, max_y] = get_axis_bounds(current_pos.y, current_pos.x,
+            map->GetRoadsByX(static_cast<int>(std::round(current_pos.x))),
+            map->GetRoadsByY(static_cast<int>(std::round(current_pos.y))), false);
+        next_pos.y = std::clamp(next_pos.y, min_y, max_y);
     }
+
     return next_pos;
 }
-
 void Application::UpdateDog(Player& player, double dt) {
     auto& dog = player.GetDog();
     auto speed = dog.GetSpeed();
@@ -221,10 +215,8 @@ void Application::UpdateDog(Player& player, double dt) {
     dog.SetSpeed(speed);
 }
 
-// PASTE HERE, inside namespace app so it can see LootInMap directly
 class GameItemGatherer : public collision_detector::ItemGathererProvider {
 public:
-    // Note: removed 'app::' prefix since we are inside namespace app
     GameItemGatherer(const std::vector<LootInMap>& loots, const std::vector<model::Office>& offices,
         const std::vector<std::pair<model::Dog*, geom::Position>>& moving_dogs)
         : loots_(loots), offices_(offices), moving_dogs_(moving_dogs) {}
@@ -239,16 +231,16 @@ public:
 
         // Case 2: Office (Int/Point2D -> Needs conversion)
         const auto& office = offices_[idx - loots_.size()];
-        const auto& pos = office.GetPosition();  // This is Point2D (int)
+        const auto& pos = office.GetPosition();
 
-        return {.position = {static_cast<double>(pos.x), static_cast<double>(pos.y)}, .width = 0.5};
+        return {.position = {static_cast<double>(pos.x), static_cast<double>(pos.y)}, .width = ITEM_WIDTH};
     }
 
     size_t GatherersCount() const override { return moving_dogs_.size(); }
 
     collision_detector::Gatherer GetGatherer(size_t idx) const override {
         const auto& [dog, start_pos] = moving_dogs_[idx];
-        return collision_detector::Gatherer{start_pos, dog->GetPosition(), 0.6};
+        return collision_detector::Gatherer{start_pos, dog->GetPosition(), PLAYER_WIDTH};
     }
 
 private:
@@ -331,14 +323,6 @@ std::string Application::GetMapValue(const std::string& name) const {
     return extra_data_.GetMapValue(name);
 }
 
-void Application::GenerateOneLoot(std::string idMap, model::GameSession* session, unsigned long numberInMap) {
-    static thread_local std::random_device rd;
-    static thread_local std::mt19937 gen(rd());
-
-    std::uniform_int_distribution<size_t> dist(0, numberInMap - 1);
-    loots_.at(idMap).emplace_back(dist(gen), session->GenerateRamdomPosition());
-}
-
 void Application::GenerateLoot(std::chrono::milliseconds timeDelta) {
     for (auto const& map : game_.GetMaps()) {
         const auto& id = map.GetId();
@@ -352,9 +336,10 @@ void Application::GenerateLoot(std::chrono::milliseconds timeDelta) {
         if (it == loots_.end())
             continue;
         auto n = loot_gen_.Generate(timeDelta, it->second.size(), game_session->GetNumberDogs());
-
+        std::uniform_int_distribution<size_t> dist(0, *numberInMap - 1);
         for ([[maybe_unused]] auto i : std::views::iota(0u, n)) {
-            GenerateOneLoot(*id, game_session, *numberInMap);
+            loots_.at(*id).emplace_back(dist(game_session->GetRandomGen()),
+                map.GetRandomPositionOnRoad(game_session->GetRandomGen()));
         }
     }
 }

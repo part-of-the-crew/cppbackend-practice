@@ -2,6 +2,7 @@
 #include <cmath>
 #include <deque>
 #include <memory>
+#include <random>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -92,6 +93,7 @@ public:
     void SetDogSpeed(double speed) { dogSpeed_ = speed; }
     double GetBagCapacity() const { return bagCapacity_; }
     double GetDogSpeed() const { return dogSpeed_; }
+    geom::Position GetRandomPositionOnRoad(std::mt19937& gen) const;
 
 private:
     using OfficeIdToIndex = std::unordered_map<Office::Id, size_t, util::TaggedHasher<Office::Id>>;
@@ -153,8 +155,7 @@ private:
 
 class GameSession {
 public:
-    explicit GameSession(const Map* map) : map_(map) {}
-
+    explicit GameSession(const Map* map) : map_(map), gen_(SeedFromSystem()) {}
     Dog* AddDog(std::string_view name);
 
     const Map* GetMap() const { return map_; }
@@ -162,12 +163,22 @@ public:
     // Non-const getter for updating state
     std::deque<Dog>& GetDogs() { return dogs_; }
     std::size_t GetNumberDogs() const { return dogs_.size(); }
-    geom::Position GenerateRamdomPosition(void) const;
+    std::mt19937& GetRandomGen(void) { return gen_; }
 
 private:
+    static std::mt19937 SeedFromSystem() {
+        std::random_device rd;
+        std::seed_seq seq{rd(), rd()};
+        return std::mt19937(seq);
+    }
+    double GetRandomDouble(double a, double b) {
+        std::uniform_real_distribution<double> d(a, b);
+        return d(gen_);
+    }
     const Map* map_;
     std::deque<Dog> dogs_;
     int next_dog_id_ = 0;
+    std::mt19937 gen_;
 };
 
 class Game {

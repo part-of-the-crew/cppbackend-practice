@@ -16,6 +16,9 @@ namespace app {
 
 using Token = std::string;
 
+constexpr double ITEM_WIDTH = 0.5;
+constexpr double PLAYER_WIDTH = 0.6;
+
 class Player {
 public:
     Player(model::GameSession* session, model::Dog* dog) : session_(session), dog_(dog) {}
@@ -110,5 +113,8 @@ private:
     std::unordered_map<std::string, std::vector<LootInMap>> loots_;
     loot_gen::LootGenerator loot_gen_;
 };
+
+geom::Position CalculateNewPosition(
+    const model::Map* map, geom::Position current_pos, geom::Speed speed, double dt);
 
 }  // namespace app
