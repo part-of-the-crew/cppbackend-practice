@@ -1,0 +1,54 @@
+[requires]
+boost/1.78.0
+catch2/3.4.0
+libpqxx/7.7.4
+
+[generators]
+cmake
+
+[options]
+boost:shared=False
+boost:multithreading=True
+boost:layout=system
+
+# --- LIBRARIES TO SKIP (True = Do Not Build) ---
+# These are heavy and not used in your current code
+boost:without_contract=True
+boost:without_coroutine=True
+boost:without_context=True
+boost:without_fiber=True
+boost:without_graph=True
+boost:without_graph_parallel=True
+boost:without_iostreams=True
+boost:without_locale=True
+boost:without_math=True
+boost:without_mpi=True
+boost:without_nowide=True
+boost:without_python=True
+boost:without_stacktrace=True
+boost:without_test=True
+boost:without_timer=True
+boost:without_type_erasure=True
+boost:without_wave=True
+# boost:without_headers=True
+# boost:without_prg_exec_monitor=True
+# boost:without_unit_test_framework=True
+
+# --- LIBRARIES TO KEEP (False = Build them) ---
+boost:without_program_options=False
+boost:without_chrono=False
+boost:without_date_time=False
+boost:without_filesystem=False
+boost:without_json=False
+boost:without_log=False
+boost:without_system=False
+boost:without_thread=False
+# Atomic and Container are often internal dependencies for Log/Thread
+boost:without_atomic=False
+boost:without_container=False
+boost:without_exception=False
+boost:without_random=False
+boost:without_regex=False
+boost:without_serialization=False
+
+# boost:without_iostreams=True and boost:without_timer=True could be log dependencies
